@@ -1,0 +1,21 @@
+{
+  "name": "aws-bulk-download",
+  "version": "1.0.0",
+  "description": "Bulk download",
+  "main": "app.js",
+  "author": "kvasseure",
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^3.1.1",
+    "axios": "^0.19.2",
+    "file-size": "^1.0.0",
+    "jsonschema": "^1.2.6"
+  },
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "aws-sdk": "^2.656.0",
+    "jest": "^25.3.0"
+  }
+}

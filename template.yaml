@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  SAM Template for serverless asset bulk download
+
+Globals:
+  Function:
+    Timeout: 3
+
+Resources:
+  #Buckets
+  BulkDownloadZipBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub ${AWS::StackName}
+
+  BulkDownloadZipFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bulk-download/
+      Handler: app.zipHandler
+      Runtime: nodejs12.x
+      Timeout: 900
+      Environment:
+        Variables:
+          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref BulkDownloadZipBucket
+
+  BulkDownloadZipMasterFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bulk-download/
+      Handler: app.zipMasterHandler
+      Runtime: nodejs12.x
+      Timeout: 900
+      Environment:
+        Variables:
+          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+          ZIP_FUNCTION: !Ref BulkDownloadZipFunction
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BulkDownloadZipFunction
+
+  BulkDownloadTriggerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bulk-download/
+      Handler: app.apiHandler
+      Runtime: nodejs12.x
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BulkDownloadZipMasterFunction
+      Environment:
+        Variables:
+          ZIP_MASTER_FUNCTION: !Ref BulkDownloadZipMasterFunction
+      Events:
+        RequestDownload:
+          Type: HttpApi
+          Properties:
+            Path: /request
+            Method: post
+
+Outputs:
+  BulkDownloadTriggerFunctionApi:
+    Description: "API Http Gateway endpoint URL"
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/request"
+  BulkDownloadZipBucket:
+    Description: "Bucket where zip files are uploaded"
+    Value: !GetAtt BulkDownloadZipBucket.Arn
+  BulkDownloadTriggerFunction:
+    Description: "API Proxy lambda"
+    Value: !GetAtt BulkDownloadTriggerFunction.Arn
+  BulkDownloadZipMasterFunction:
+    Description: "Middle lambda that pilots zip generation"
+    Value: !GetAtt BulkDownloadZipMasterFunction.Arn
+  BulkDownloadZipFunction:
+    Description: "Lambda that builds a zip file"
+    Value: !GetAtt BulkDownloadZipFunction.Arn

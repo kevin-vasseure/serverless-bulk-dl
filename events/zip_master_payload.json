@@ -1,0 +1,11 @@
+{
+  "callback": "",
+  "assets": [
+    {
+      "url": "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4",
+      "name": "bbb_sunflower_1080p_30fps_normal.mp4",
+      "size": 276134947
+    }
+  ],
+  "email": "my.name@exemple.com"
+}
