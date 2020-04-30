@@ -1,0 +1,27 @@
+{
+  "callback": "",
+  "assets": [
+    {
+      "url": "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_30fps_normal.mp4",
+      "name": "bbb_sunflower_1080p_30fps_normal.mp4",
+      "size": 276134943
+    },
+    {
+      "url": "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_1080p_60fps_normal.mp4",
+      "name": "bbb_sunflower_1080p_60fps_normal.mp4",
+      "size": 356134843
+    },
+    {
+      "url": "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_2160p_60fps_normal.mp4",
+      "name": "bbb_sunflower_2160p_60fps_normal.mp4",
+      "size": 673223862
+    },
+    {
+      "url": "http://distribution.bbb3d.renderfarming.net/video/mp4/bbb_sunflower_native_60fps_normal.mp4",
+      "name": "bbb_sunflower_native_60fps_normal.mp4",
+      "size": 831871244
+    }
+  ],
+  "totalSize" : 2137364892,
+  "email": "my.name@exemple.com"
+}

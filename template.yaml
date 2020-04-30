@@ -28,33 +28,18 @@ Resources:
         - S3WritePolicy:
             BucketName: !Ref BulkDownloadZipBucket
 
-  BulkDownloadZipMasterFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: bulk-download/
-      Handler: app.zipMasterHandler
-      Runtime: nodejs12.x
-      Timeout: 900
-      Environment:
-        Variables:
-          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
-          ZIP_FUNCTION: !Ref BulkDownloadZipFunction
-      Policies:
-        - LambdaInvokePolicy:
-            FunctionName: !Ref BulkDownloadZipFunction
-
   BulkDownloadTriggerFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: bulk-download/
       Handler: app.apiHandler
       Runtime: nodejs12.x
-      Policies:
-        - LambdaInvokePolicy:
-            FunctionName: !Ref BulkDownloadZipMasterFunction
       Environment:
         Variables:
-          ZIP_MASTER_FUNCTION: !Ref BulkDownloadZipMasterFunction
+          ZIP_FUNCTION: !Ref BulkDownloadZipFunction
+      Policies:
+        - LambdaInvokePolicy:
+            FunctionName: !Ref BulkDownloadZipFunction
       Events:
         RequestDownload:
           Type: HttpApi
@@ -72,9 +57,6 @@ Outputs:
   BulkDownloadTriggerFunction:
     Description: "API Proxy lambda"
     Value: !GetAtt BulkDownloadTriggerFunction.Arn
-  BulkDownloadZipMasterFunction:
-    Description: "Middle lambda that pilots zip generation"
-    Value: !GetAtt BulkDownloadZipMasterFunction.Arn
   BulkDownloadZipFunction:
     Description: "Lambda that builds a zip file"
     Value: !GetAtt BulkDownloadZipFunction.Arn
