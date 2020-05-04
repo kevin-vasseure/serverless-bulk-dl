@@ -3,7 +3,9 @@ const eventBadSchema = require('../../../stubs/api_event_bad_schema.json')
 const eventBadJson = require('../../../stubs/api_event_bad_json.json')
 const payloadRaw = require('../../../stubs/payload_raw.json')
 const payloadEnriched = require('../../../stubs/payload_enriched.json')
+const payloadSplit = require('../../../stubs/payload_split.json')
 const payloadEnrichedOneAsset = require('../../../stubs/payload_enriched_one_asset.json')
+const payloadSplitOneAsset = require('../../../stubs/payload_split_one_asset.json')
 const event = require('../../../stubs/api_event.json')
 
 jest.mock('axios', () => {
@@ -16,11 +18,17 @@ jest.mock('aws-sdk', () => {
             upload: jest.fn(() => ({
                 on: jest.fn(),
                 promise: jest.fn()
-            }))
+            })),
+            headObject: jest.fn()
         })),
         Lambda: jest.fn(() => ({
             invoke: jest.fn(() => ({
                 promise: jest.fn()
+            }))
+        })),
+        StepFunctions: jest.fn(() => ({
+            startExecution: jest.fn(() => ({
+                promise: jest.fn(() => Promise.resolve({executionArn:"myarn", startDate:"not sure"}))
             }))
         }))
     };
@@ -48,45 +56,40 @@ describe('api handler validation', function () {
         const responseBody = JSON.parse(result.body);
         expect(responseBody.message).toContain('Unexpected token')
     })
-})
-
-describe('enrich payload function test', function () {
-    it('verifies that payload is enriched with asset size and total size', async () => {
-        const enrichedPayload = await app.enrichPayload(payloadRaw)
-        expect(enrichedPayload.assets[0].size).toEqual(1000)
-        expect(enrichedPayload.totalSize).toEqual(4000)
-    })
-})
-
-describe('tests on the function that triggers zips', function () {
-    it('verifies how it splits bulk dls', async () => {
-        let payload = await app.triggerZipLambdas(payloadEnriched)
-        expect(payload.zipList.length).toEqual(2)
-        expect(payload.zipList[0].zipName).toMatch(/.*-1\.zip$/)
-        expect(payload.zipList[0].assets.length).toEqual(3)
-        expect(payload.zipList[1].zipName).toMatch(/.*-2\.zip$/)
-        expect(payload.zipList[1].assets.length).toEqual(1)
-    })
-    it('verifies it doesnt split when only one asset', async () => {
-        let payload = await app.triggerZipLambdas(payloadEnrichedOneAsset)
-        expect(payload.zipList.length).toEqual(1)
-        expect(payload.zipList[0].zipName).toMatch(/.*(?<!-\d)\.zip$/)
-    })
-})
-
-describe('api handler response', function () {
     it('verifies that payload with wrong schema is handled', async () => {
         const result = await app.apiHandler(event, context)
         expect(result.statusCode).toEqual(200)
         const responseBody = JSON.parse(result.body);
         expect(responseBody.message.totalSize).toEqual("1.95 KiB")
-        expect(responseBody.message.zipList.length).toEqual(1)
+        expect(responseBody.message.stepFunction.executionArn).toEqual("myarn")
     })
 })
 
-describe('Test zip handler', function () {
-    it('verifies it starts', async () => {
-        await app.zipHandler(payloadEnriched)
+describe('check zip exist function', function () {
+    it('verifies that it return 0', async () => {
+        const result = await app.apiHandler(event, context)
+        expect(result.statusCode).toEqual(200)
+        const responseBody = JSON.parse(result.body);
+        expect(responseBody.message.totalSize).toEqual("1.95 KiB")
+        expect(responseBody.message.stepFunction.executionArn).toEqual("myarn")
     })
 })
 
+describe('enrich payload function test', function () {
+    it('verifies that payload is enriched with asset size and total size', async () => {
+        const enrichedPayload = await app.fetchAssetSize(payloadRaw)
+        expect(enrichedPayload.assets[0].size).toEqual(1000)
+        expect(enrichedPayload.totalSize).toEqual(4000)
+    })
+})
+
+describe('split asset function test', function () {
+    it('verifies how it splits bulk dls', async () => {
+        let payload = await app.splitPayload(payloadEnriched)
+        expect(payload).toEqual(payloadSplit)
+    })
+    it('verifies it doesnt split when only one asset', async () => {
+        let payload = await app.splitPayload(payloadEnrichedOneAsset)
+        expect(payload).toEqual(payloadSplitOneAsset)
+    })
+})

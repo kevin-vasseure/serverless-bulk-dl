@@ -28,7 +28,93 @@ Resources:
         - S3WritePolicy:
             BucketName: !Ref BulkDownloadZipBucket
 
-  BulkDownloadTriggerFunction:
+  BulkDownloadCheckZipExistFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bulk-download/
+      Handler: app.zipHandler
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref BulkDownloadZipBucket
+
+  BulkDownloadStateMachine:
+    Type: "AWS::StepFunctions::StateMachine"
+    Properties:
+      DefinitionString:
+        !Sub
+        - |-
+          {
+            "Comment": "A workflow for digital asset bulk download of DAM",
+            "StartAt": "Check if zip files already exist in S3",
+            "States": {
+              "Check if zip files already exist in S3": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "${checkIfZipExistsLambda}",
+                  "Payload": {
+                    "Input.$": "$"
+                  }
+                },
+                "Next": "Choice zip already exists"
+              },
+              "Choice zip already exists": {
+                "Type": "Choice",
+                "Choices": [
+                  {
+                    "Variable": "$.zipExist",
+                    "NumericEquals": 1,
+                    "Next": "Generate Presigned URLs"
+                  }
+                ],
+                "Default": "Concurrent Zip"
+              },
+              "Concurrent Zip": {
+                "Type": "Map",
+                "MaxConcurrency": 10,
+                "Iterator": {
+                  "StartAt": "Pass State",
+                  "States": {
+                    "Pass State": {
+                      "Type": "Pass",
+                      "End": true
+                    }
+                  }
+                },
+                "Next": "Generate Presigned URLs"
+              },
+              "Generate Presigned URLs": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::lambda:invoke",
+                "Parameters": {
+                  "FunctionName": "arn:aws:lambda:REGION:ACCOUNT_ID:function:FUNCTION_NAME",
+                  "Payload": {
+                    "Input.$": "$"
+                  }
+                },
+                "Next": "Send message to SNS"
+              },
+              "Send message to SNS": {
+                "Type": "Task",
+                "Resource": "arn:aws:states:::sns:publish",
+                "Parameters": {
+                  "TopicArn": "arn:aws:sns:us-east-1:ACCOUNT_ID:myTopic",
+                  "Message": {
+                    "Input": "Hello from Step Functions!"
+                  }
+                },
+                "End": true
+              }
+            }
+          }
+        - {checkIfZipExistsLambdaArn: !GetAtt BulkDownloadCheckZipExistFunction.Arn}
+      RoleArn: !GetAtt [ StatesExecutionRole, Arn ]
+
+  BulkDownloadApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: bulk-download/
@@ -54,9 +140,9 @@ Outputs:
   BulkDownloadZipBucket:
     Description: "Bucket where zip files are uploaded"
     Value: !GetAtt BulkDownloadZipBucket.Arn
-  BulkDownloadTriggerFunction:
+  BulkDownloadApiFunction:
     Description: "API Proxy lambda"
-    Value: !GetAtt BulkDownloadTriggerFunction.Arn
+    Value: !GetAtt BulkDownloadApiFunction.Arn
   BulkDownloadZipFunction:
     Description: "Lambda that builds a zip file"
     Value: !GetAtt BulkDownloadZipFunction.Arn

@@ -46,21 +46,30 @@ async function apiHandler(event, context) {
 
     if (!response) {
         try {
-            payload = await enrichPayload(payload)
-            payload = await triggerZipLambdas(payload)
+            payload = await fetchAssetSize(payload) //preprocess payload
+            payload = await splitPayload(payload)  //split payload
+
+            const stepFunctions = new AWS.StepFunctions();
+            const stepFunctionData = await stepFunctions.startExecution({
+                stateMachineArn: process.env.BULK_DL_STEP_FUNCTION_ARN,
+                input: JSON.stringify(payload)
+            }).promise();
 
             response = {
                 'statusCode': 200,
                 'body': JSON.stringify({
                     message: {
+                        stepFunction: stepFunctionData,
                         totalSize: fileSize(payload.totalSize).human(),
-                        zipList: payload.zipList.map((zip) => {
-                            return {
-                                assets: zip.assets,
-                                zipName: zip.zipName,
-                                size: fileSize(zip.size).human()
-                            }
-                        })
+                        payload: { // change size to human readable format?
+                            zipList: payload.zipList.map((zip) => {
+                                return {
+                                    assets: zip.assets,
+                                    zipName: zip.zipName,
+                                    size: fileSize(zip.size).human()
+                                }
+                            })
+                        }
                     }
                 })
             }
@@ -78,7 +87,7 @@ async function apiHandler(event, context) {
  * @param payload
  * @returns {Promise<void>}
  */
-async function enrichPayload(payload) {
+async function fetchAssetSize(payload) {
     const requests = await Promise.all(payload.assets.map(asset => axios({url: asset.url, method: "HEAD"})))
     const sizes = requests.map(response => parseInt(response.headers['content-length'] || 0))
     payload.totalSize = sizes.reduce((a, b) => a + b, 0)
@@ -94,12 +103,10 @@ async function enrichPayload(payload) {
  * @param payload
  * @returns {Promise<[]>}
  */
-async function triggerZipLambdas(payload) {
-    console.log("received event " + JSON.stringify(payload, null, 2))
+async function splitPayload(payload) {
+    console.log("received payload " + JSON.stringify(payload))
 
     const maxSize = process.env.ARCHIVE_SIZE || 1000000000
-    const lambda = new AWS.Lambda()
-    const invocationList = []
 
     //make a hash id out of filenames and sizes
     const data = payload.assets.reduce((a, b) => a.name + a.size + b.name + b.size, {name: "", size: ""})
@@ -116,27 +123,33 @@ async function triggerZipLambdas(payload) {
         assetsAccumulator.push(asset)
         if (sizeCounter > maxSize || (index + 1 === payload.assets.length)) { //until we reach our size threshold or end of array
             const zipName = (sizeCounter < payload.totalSize || zipCount > 1) ? hashID + "-" + zipCount++ + ".zip" : hashID + ".zip"
-            console.log("calling zip function " + process.env.ZIP_FUNCTION + " => " + JSON.stringify(assetsAccumulator))
-            console.log("estimated size " + fileSize(sizeCounter).human())
             //send a sublist of assets to a zip lambda
             const sublist = {assets: assetsAccumulator, zipName: zipName, size: sizeCounter}
             zipList.push(sublist)
-            //call zip lambda
-            let invocation = lambda.invoke({
-                FunctionName: process.env.ZIP_FUNCTION,
-                InvocationType: 'Event',
-                Payload: JSON.stringify(sublist)
-            }).promise()
-            invocationList.push(invocation)
             //reset asset list and size counter
             assetsAccumulator = []
             sizeCounter = 0
         }
     })
 
-    await Promise.all(invocationList)
     payload.zipList = zipList
+    delete payload.assets //remove the asset list as they are in the zip list now
     return Promise.resolve(payload)
+}
+
+async function checkIfZipExist(payload) {
+    console.log("received payload " + JSON.stringify(payload))
+
+    let zipHeaderList = []
+    const s3 = new AWS.S3()
+    payload.zipList.forEach((zip) => {
+        zipHeaderList.push(s3.headObject({
+            Bucket: process.env.BULK_DOWNLOAD_ZIP_BUCKET,
+            Key: zip.zipName,
+        }).promise())
+    })
+
+    zipHeaderList = await Promise.all(zipHeaderList)
 }
 
 /**
@@ -149,7 +162,7 @@ async function triggerZipLambdas(payload) {
  * @returns file location
  */
 async function zipHandler(payload) {
-    console.log("received event " + JSON.stringify(payload))
+    console.log("received payload " + JSON.stringify(payload))
 
     const s3 = new AWS.S3()
     const streamPassThrough = new stream.PassThrough()
@@ -189,7 +202,8 @@ async function zipHandler(payload) {
 
 module.exports = {
     apiHandler: apiHandler,
-    enrichPayload: enrichPayload,
-    triggerZipLambdas: triggerZipLambdas,
-    zipHandler: zipHandler
+    fetchAssetSize: fetchAssetSize,
+    splitPayload: splitPayload,
+    zipHandler: zipHandler,
+    checkIfZipExist: checkIfZipExist
 }
