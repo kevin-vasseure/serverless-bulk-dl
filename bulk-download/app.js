@@ -51,7 +51,7 @@ async function apiHandler(event, context) {
 
             const stepFunctions = new AWS.StepFunctions();
             const stepFunctionData = await stepFunctions.startExecution({
-                stateMachineArn: process.env.BULK_DL_STEP_FUNCTION_ARN,
+                stateMachineArn: process.env.BD_STATE_MACHINE,
                 input: JSON.stringify(payload)
             }).promise();
 
@@ -75,7 +75,12 @@ async function apiHandler(event, context) {
             }
         } catch (err) {
             console.log(err)
-            return err
+            response = {
+                'statusCode': 500,
+                'body': JSON.stringify({
+                    message: err,
+                })
+            }
         }
     }
     return response
@@ -106,7 +111,7 @@ async function fetchAssetSize(payload) {
 async function splitPayload(payload) {
     console.log("received payload " + JSON.stringify(payload))
 
-    const maxSize = process.env.ARCHIVE_SIZE || 1000000000
+    const maxSize = parseInt(process.env.BD_ARCHIVE_SIZE)
 
     //make a hash id out of filenames and sizes
     const data = payload.assets.reduce((a, b) => a.name + a.size + b.name + b.size, {name: "", size: ""})
@@ -134,22 +139,41 @@ async function splitPayload(payload) {
 
     payload.zipList = zipList
     delete payload.assets //remove the asset list as they are in the zip list now
-    return Promise.resolve(payload)
+    return payload
 }
 
-async function checkIfZipExist(payload) {
+/**
+ * Check if zip files have already been created for that bulk download request
+ * @param payload
+ * @returns {Promise<void>}
+ */
+async function checkIfZipsExist(payload) {
     console.log("received payload " + JSON.stringify(payload))
 
-    let zipHeaderList = []
     const s3 = new AWS.S3()
-    payload.zipList.forEach((zip) => {
-        zipHeaderList.push(s3.headObject({
-            Bucket: process.env.BULK_DOWNLOAD_ZIP_BUCKET,
-            Key: zip.zipName,
-        }).promise())
-    })
+    const zipName = payload.zipList[0].zipName;
+    const objectList = await s3.listObjects({
+            Bucket: process.env.BD_ZIP_BUCKET,
+            Prefix: zipName.substring(0,zipName.length - 6),
+        }).promise()
 
-    zipHeaderList = await Promise.all(zipHeaderList)
+    payload.zipsExist = 1
+    //we compare the number of zip found
+    if (objectList.Contents.length === payload.zipList.length) {
+        objectList.Contents.forEach((content, index) => {
+            //we compare the size of each zip found and the payload.
+            //if it differs too much, we assume they're different
+            const round = Math.round(payload.zipList[index].size / content.Size);
+            console.log('expected zip size: '+ payload.zipList[index].size + ' / found in s3: ' + content.Size +" = " + round)
+            if(round !== 1){
+                payload.zipsExist = 0
+            }
+        })
+    } else {
+        payload.zipsExist = 0
+    }
+
+    return payload
 }
 
 /**
@@ -161,7 +185,7 @@ async function checkIfZipExist(payload) {
  * @param payload
  * @returns file location
  */
-async function zipHandler(payload) {
+async function generateZipStream(payload) {
     console.log("received payload " + JSON.stringify(payload))
 
     const s3 = new AWS.S3()
@@ -169,7 +193,7 @@ async function zipHandler(payload) {
 
     const s3Upload = s3.upload({
         Body: streamPassThrough,
-        Bucket: process.env.BULK_DOWNLOAD_ZIP_BUCKET,
+        Bucket: process.env.BD_ZIP_BUCKET,
         ContentType: 'application/zip',
         Key: payload.zipName,
     })
@@ -197,13 +221,37 @@ async function zipHandler(payload) {
         }
     }
     archive.finalize()
-    return s3Upload.promise()
+    return s3Upload.promise().then((data) => {
+        payload.s3upload = data
+        return payload
+    });
+}
+
+/**
+ *
+ * @param payload
+ * @returns {Promise<*>}
+ */
+async function generateUrl(payload) {
+    console.log("received payload " + JSON.stringify(payload))
+
+    const s3 = new AWS.S3()
+    for (let zip of payload.zipList) {
+        zip.url = await s3.getSignedUrl('getObject',{
+            Bucket: process.env.BD_ZIP_BUCKET,
+            Key: zip.zipName,
+            Expires: parseInt(process.env.BD_LINK_EXPIRES)
+        });
+    }
+
+    return payload
 }
 
 module.exports = {
     apiHandler: apiHandler,
     fetchAssetSize: fetchAssetSize,
     splitPayload: splitPayload,
-    zipHandler: zipHandler,
-    checkIfZipExist: checkIfZipExist
+    generateZipStream: generateZipStream,
+    checkIfZipsExist: checkIfZipsExist,
+    generateUrl: generateUrl
 }

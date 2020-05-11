@@ -6,6 +6,7 @@ const payloadEnriched = require('../../../stubs/payload_enriched.json')
 const payloadSplit = require('../../../stubs/payload_split.json')
 const payloadEnrichedOneAsset = require('../../../stubs/payload_enriched_one_asset.json')
 const payloadSplitOneAsset = require('../../../stubs/payload_split_one_asset.json')
+const mockListObjectsResponse = require('../../../stubs/list_objects_stub.json')
 const event = require('../../../stubs/api_event.json')
 
 jest.mock('axios', () => {
@@ -19,7 +20,9 @@ jest.mock('aws-sdk', () => {
                 on: jest.fn(),
                 promise: jest.fn()
             })),
-            headObject: jest.fn()
+            listObjects: jest.fn(() => ({
+                promise: jest.fn(() => Promise.resolve(mockListObjectsResponse))
+            }))
         })),
         Lambda: jest.fn(() => ({
             invoke: jest.fn(() => ({
@@ -28,7 +31,7 @@ jest.mock('aws-sdk', () => {
         })),
         StepFunctions: jest.fn(() => ({
             startExecution: jest.fn(() => ({
-                promise: jest.fn(() => Promise.resolve({executionArn:"myarn", startDate:"not sure"}))
+                promise: jest.fn(() => Promise.resolve({executionArn: "myarn", startDate: "not sure"}))
             }))
         }))
     };
@@ -65,16 +68,6 @@ describe('api handler validation', function () {
     })
 })
 
-describe('check zip exist function', function () {
-    it('verifies that it return 0', async () => {
-        const result = await app.apiHandler(event, context)
-        expect(result.statusCode).toEqual(200)
-        const responseBody = JSON.parse(result.body);
-        expect(responseBody.message.totalSize).toEqual("1.95 KiB")
-        expect(responseBody.message.stepFunction.executionArn).toEqual("myarn")
-    })
-})
-
 describe('enrich payload function test', function () {
     it('verifies that payload is enriched with asset size and total size', async () => {
         const enrichedPayload = await app.fetchAssetSize(payloadRaw)
@@ -91,5 +84,12 @@ describe('split asset function test', function () {
     it('verifies it doesnt split when only one asset', async () => {
         let payload = await app.splitPayload(payloadEnrichedOneAsset)
         expect(payload).toEqual(payloadSplitOneAsset)
+    })
+})
+
+describe('check if zips exists', function () {
+    it('check if the zips for this bulk download already exits.', async () => {
+        const payload = await app.checkIfZipsExist(payloadSplit)
+        expect(payload.zipsExist).toEqual(1)
     })
 })

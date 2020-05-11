@@ -1,0 +1,24 @@
+{
+  "IsTruncated": false,
+  "Marker": "",
+  "Contents": [
+    {
+      "Key": "download_b94e1f4714f86d8fd00adc4243f3a8f3-1.zip",
+      "LastModified": "2020-04-30T04:56:46.000Z",
+      "ETag": "f5a680a43a947e89da079843b9bf2a5e-249",
+      "Size": 1302805368,
+      "StorageClass": "STANDARD"
+    },
+    {
+      "Key": "download_b94e1f4714f86d8fd00adc4243f3a8f3-2.zip",
+      "LastModified": "2020-04-30T04:56:45.000Z",
+      "ETag": "9cb3f05d48232cf9070b2c1b5008555d-159",
+      "Size": 830805432,
+      "StorageClass": "STANDARD"
+    }
+  ],
+  "Name": "bulk-dl-test",
+  "Prefix": "download_b94e1f4714f86d8fd00adc4243f3a8f3",
+  "MaxKeys": 1000,
+  "CommonPrefixes": []
+}

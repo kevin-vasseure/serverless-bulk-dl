@@ -8,7 +8,7 @@ Globals:
     Timeout: 3
 
 Resources:
-  #Buckets
+
   BulkDownloadZipBucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -18,28 +18,76 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: bulk-download/
-      Handler: app.zipHandler
+      Handler: app.generateZipStream
       Runtime: nodejs12.x
       Timeout: 900
+      MemorySize: 512
       Environment:
         Variables:
-          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+          BD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
       Policies:
         - S3WritePolicy:
             BucketName: !Ref BulkDownloadZipBucket
 
-  BulkDownloadCheckZipExistFunction:
+  BulkDownloadCheckZipsExistFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: bulk-download/
-      Handler: app.zipHandler
+      Handler: app.checkIfZipsExist
       Runtime: nodejs12.x
       Environment:
         Variables:
-          BULK_DOWNLOAD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+          BD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
       Policies:
-        - S3WritePolicy:
+        - S3ReadPolicy:
             BucketName: !Ref BulkDownloadZipBucket
+
+  BulkDownloadGenerateUrlFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: bulk-download/
+      Handler: app.generateUrl
+      Runtime: nodejs12.x
+      Environment:
+        Variables:
+          BD_ZIP_BUCKET: !Ref BulkDownloadZipBucket
+          BD_LINK_EXPIRES: 86400
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref BulkDownloadZipBucket
+
+  BulkDownloadSNS:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: ${AWS::StackName}
+      TopicName: !Sub ${AWS::StackName}-topic
+
+  BulkDownloadStatesRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service:
+                - !Sub states.${AWS::Region}.amazonaws.com
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: StatesExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "lambda:InvokeFunction"
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - "sns:Publish"
+                Resource:
+                  - !Ref BulkDownloadSNS
 
   BulkDownloadStateMachine:
     Type: "AWS::StepFunctions::StateMachine"
@@ -48,25 +96,19 @@ Resources:
         !Sub
         - |-
           {
-            "Comment": "A workflow for digital asset bulk download of DAM",
+            "Comment": "A workflow for digital asset bulk download",
             "StartAt": "Check if zip files already exist in S3",
             "States": {
               "Check if zip files already exist in S3": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
-                "Parameters": {
-                  "FunctionName": "${checkIfZipExistsLambda}",
-                  "Payload": {
-                    "Input.$": "$"
-                  }
-                },
+                "Resource": "${checkIfZipsExistFunction}",
                 "Next": "Choice zip already exists"
               },
               "Choice zip already exists": {
                 "Type": "Choice",
                 "Choices": [
                   {
-                    "Variable": "$.zipExist",
+                    "Variable": "$.zipsExist",
                     "NumericEquals": 1,
                     "Next": "Generate Presigned URLs"
                   }
@@ -76,11 +118,14 @@ Resources:
               "Concurrent Zip": {
                 "Type": "Map",
                 "MaxConcurrency": 10,
+                "ItemsPath": "$.zipList",
+                "ResultPath": "$.zipList",
                 "Iterator": {
-                  "StartAt": "Pass State",
+                  "StartAt": "Generate Zip",
                   "States": {
-                    "Pass State": {
-                      "Type": "Pass",
+                    "Generate Zip": {
+                      "Type": "Task",
+                      "Resource": "${generateZipFunction}",
                       "End": true
                     }
                   }
@@ -89,30 +134,27 @@ Resources:
               },
               "Generate Presigned URLs": {
                 "Type": "Task",
-                "Resource": "arn:aws:states:::lambda:invoke",
-                "Parameters": {
-                  "FunctionName": "arn:aws:lambda:REGION:ACCOUNT_ID:function:FUNCTION_NAME",
-                  "Payload": {
-                    "Input.$": "$"
-                  }
-                },
+                "Resource": "${generateUrlFunction}",
                 "Next": "Send message to SNS"
               },
               "Send message to SNS": {
                 "Type": "Task",
                 "Resource": "arn:aws:states:::sns:publish",
                 "Parameters": {
-                  "TopicArn": "arn:aws:sns:us-east-1:ACCOUNT_ID:myTopic",
+                  "TopicArn": "${sendNotificationSNS}",
                   "Message": {
-                    "Input": "Hello from Step Functions!"
+                    "Input": "$"
                   }
                 },
                 "End": true
               }
             }
           }
-        - {checkIfZipExistsLambdaArn: !GetAtt BulkDownloadCheckZipExistFunction.Arn}
-      RoleArn: !GetAtt [ StatesExecutionRole, Arn ]
+        - {checkIfZipsExistFunction: !GetAtt BulkDownloadCheckZipsExistFunction.Arn,
+           generateUrlFunction: !GetAtt BulkDownloadGenerateUrlFunction.Arn,
+           generateZipFunction: !GetAtt BulkDownloadZipFunction.Arn,
+           sendNotificationSNS: !Ref BulkDownloadSNS}
+      RoleArn: !GetAtt [ BulkDownloadStatesRole, Arn ]
 
   BulkDownloadApiFunction:
     Type: AWS::Serverless::Function
@@ -122,10 +164,11 @@ Resources:
       Runtime: nodejs12.x
       Environment:
         Variables:
-          ZIP_FUNCTION: !Ref BulkDownloadZipFunction
+          BD_STATE_MACHINE: !Ref BulkDownloadStateMachine
+          BD_ARCHIVE_SIZE: 1000000000
       Policies:
-        - LambdaInvokePolicy:
-            FunctionName: !Ref BulkDownloadZipFunction
+        - StepFunctionsExecutionPolicy:
+            StateMachineName: !GetAtt BulkDownloadStateMachine.Name
       Events:
         RequestDownload:
           Type: HttpApi
@@ -146,3 +189,12 @@ Outputs:
   BulkDownloadZipFunction:
     Description: "Lambda that builds a zip file"
     Value: !GetAtt BulkDownloadZipFunction.Arn
+  BulkDownloadCheckZipsExistFunction:
+    Description: "Lambda that checks if the zip files already exit"
+    Value: !GetAtt BulkDownloadCheckZipsExistFunction.Arn
+  BulkDownloadGenerateUrlFunction:
+    Description: "Lambda that generates signed url"
+    Value: !GetAtt BulkDownloadGenerateUrlFunction.Arn
+  BulkDownloadStateMachine:
+    Description: "bulk download step function arn"
+    Value: !Ref BulkDownloadStateMachine

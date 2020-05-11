@@ -47,3 +47,5 @@ samconfig.toml
 
 ### WS ###
 .idea
+package.json
+yarn.lock
