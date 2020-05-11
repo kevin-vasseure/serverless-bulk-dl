@@ -7,9 +7,6 @@
     "email"
   ],
   "properties": {
-    "callback_url" : {
-      "type": "string"
-    },
     "assets": {
       "type": "array",
       "minItems": 1,

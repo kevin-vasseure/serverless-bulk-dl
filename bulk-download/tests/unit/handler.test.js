@@ -44,6 +44,7 @@ jest.mock('archiver', () => {
         append: jest.fn()
     }))
 })
+process.env.BD_ARCHIVE_SIZE = "1000000000"
 
 let context
 describe('api handler validation', function () {

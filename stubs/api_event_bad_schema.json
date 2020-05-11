@@ -1,5 +1,5 @@
 {
-  "body": "{\n  \"callback\": \"\",\n  \"assets\": [\n    {\n      \"name\": \"bbb_sunflower_1080p_30fps_normal.mp4\"}\n  ],\n  \"email\": \"my.name@exemple.com\"\n}\n",
+  "body": "{\n  \"assets\": [\n    {\n      \"name\": \"bbb_sunflower_1080p_30fps_normal.mp4\"}\n  ],\n  \"email\": \"my.name@exemple.com\"\n}\n",
   "resource": "/{proxy+}",
   "path": "/path/to/resource",
   "httpMethod": "POST",
